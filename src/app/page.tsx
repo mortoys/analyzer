@@ -432,6 +432,113 @@ final_result
   }
 };
 
+// 使用 AI 生成列描述
+const generateColumnDescriptions = async (
+  columns: TableColumn[],
+  fileName: string,
+  sampleData: unknown[][]
+): Promise<TableColumn[]> => {
+  try {
+    // 构建提示信息
+    const columnsInfo = columns.map(col => `${col.name} (${col.type})`).join(', ');
+    const sampleDataStr = sampleData.length > 0 
+      ? sampleData.slice(0, 3).map((row, index) => 
+          `第${index + 1}行: ${columns.map((col, i) => `${col.name}=${row[i]}`).join(', ')}`
+        ).join('\n')
+      : '无样本数据';
+    
+    const prompt = `分析以下CSV文件的列信息，为每个列生成简洁的中文描述（每个描述不超过10个字）：
+
+文件名: ${fileName}
+列信息: ${columnsInfo}
+样本数据:
+${sampleDataStr}
+
+请根据列名和样本数据推测每列的实际含义，以JSON格式返回：
+{
+  "列名1": "简洁描述1",
+  "列名2": "简洁描述2"
+}
+
+只返回JSON，不要其他文字。`;
+
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('AI 请求失败');
+    }
+
+    // 处理流式响应
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let aiResponse = '';
+    
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        // 解析 AI SDK 的流式数据格式
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('0:')) {
+            try {
+              // 直接解析 0: 后面的JSON字符串内容
+              const content = JSON.parse(line.substring(2));
+              aiResponse += content;
+            } catch {
+              // 忽略解析错误，继续处理
+            }
+          }
+        }
+      }
+    }
+    
+    console.log('AI返回的原始响应:', aiResponse);
+    
+    // 尝试解析 AI 返回的 JSON
+    let descriptions: Record<string, string> = {};
+    try {
+      // 寻找JSON块
+      const jsonMatch = aiResponse.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        descriptions = JSON.parse(jsonMatch[0]);
+        console.log('解析的描述:', descriptions);
+      }
+         } catch {
+       console.warn('AI 返回的描述格式无法解析，使用默认描述');
+     }
+
+    // 将 AI 生成的描述应用到列信息
+    return columns.map(col => ({
+      ...col,
+      description: descriptions[col.name] || `${col.type} 类型字段`
+    }));
+
+  } catch (error) {
+    console.error('生成列描述失败:', error);
+    // 如果 AI 生成失败，返回默认描述
+    return columns.map(col => ({
+      ...col,
+      description: `${col.type} 类型字段`
+    }));
+  }
+};
+
 // 判断消息是否包含SQL查询
 const containsSQL = (message: string): boolean => {
   const sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'WITH', 'DESCRIBE', 'SUMMARIZE'];
@@ -939,10 +1046,17 @@ ${result.data?.slice(0, 5).map(row => row?.join(' | ')).join('\n')}`;
               
               // 使用真实的列信息替换模拟数据
               if (summarizeData.column_details && summarizeData.column_details.length > 0) {
+                // 使用 AI 生成列描述
+                const columnsWithAIDescription = await generateColumnDescriptions(
+                  summarizeData.column_details,
+                  file.name,
+                  summarizeData.data?.slice(0, 3) || []
+                );
+                
                 fileInfo.tables = [{
                   name: file.name.replace('.csv', ''),
                   rowCount: summarizeData.row_count,
-                  columns: summarizeData.column_details
+                  columns: columnsWithAIDescription
                 }];
               }
               
