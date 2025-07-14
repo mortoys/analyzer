@@ -4,6 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import type { Message } from '@ai-sdk/react';
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import * as echarts from 'echarts';
 
 interface TableColumn {
   name: string;
@@ -19,6 +20,13 @@ interface AnalysisResult {
   column_details?: TableColumn[];
 }
 
+// 添加 ECharts 配置接口
+interface EChartsConfig {
+  option: echarts.EChartsOption;
+  title: string;
+  description?: string;
+}
+
 // 添加 SQL 执行结果接口
 interface SQLExecutionResult {
   success: boolean;
@@ -28,6 +36,7 @@ interface SQLExecutionResult {
   column_count?: number;
   error?: string;
   query?: string;
+  chartConfig?: EChartsConfig | null; // 添加图表配置
 }
 
 // Python 返回结果接口
@@ -414,13 +423,28 @@ final_result
       };
     }
     
+    // 生成图表配置
+    let chartConfig: EChartsConfig | null = null;
+    if (jsResult.data && jsResult.columns && jsResult.data.length > 0) {
+      try {
+        chartConfig = await generateEChartsConfig(
+          jsResult.data,
+          jsResult.columns,
+          cleanQuery
+        );
+      } catch (error) {
+        console.error('生成图表配置失败:', error);
+      }
+    }
+
     return {
       success: true,
       data: jsResult.data,
       columns: jsResult.columns,
       row_count: jsResult.row_count,
       column_count: jsResult.column_count,
-      query: cleanQuery
+      query: cleanQuery,
+      chartConfig: chartConfig
     };
     
   } catch (error) {
@@ -536,6 +560,114 @@ ${sampleDataStr}
       ...col,
       description: `${col.type} 类型字段`
     }));
+  }
+};
+
+// ECharts 组件
+function EChartsComponent({ config }: { config: EChartsConfig }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    // 初始化图表
+    const chart = echarts.init(chartRef.current);
+    chartInstanceRef.current = chart;
+
+    // 设置图表配置
+    chart.setOption(config.option);
+
+    // 窗口大小改变时调整图表大小
+    const handleResize = () => {
+      chart.resize();
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.dispose();
+    };
+  }, [config]);
+
+  return (
+    <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+      <h3 className="text-lg font-medium text-gray-900 mb-2">{config.title}</h3>
+      {config.description && (
+        <p className="text-sm text-gray-600 mb-4">{config.description}</p>
+      )}
+      <div ref={chartRef} className="w-full h-96" />
+    </div>
+  );
+}
+
+// 生成 ECharts 配置
+const generateEChartsConfig = async (
+  data: unknown[][],
+  columns: string[],
+  query: string
+): Promise<EChartsConfig | null> => {
+  try {
+    // 如果AI生成失败，返回默认配置
+    return generateDefaultChart(data, columns, query);
+  } catch (error) {
+    console.error('生成图表配置失败:', error);
+    return generateDefaultChart(data, columns, query);
+  }
+};
+
+// 生成默认图表配置
+const generateDefaultChart = (
+  data: unknown[][],
+  columns: string[],
+  query: string
+): EChartsConfig => {
+  // 简单的数据分析来决定图表类型
+  const isCountQuery = query.toLowerCase().includes('count');
+  const isGroupBy = query.toLowerCase().includes('group by');
+
+  if (isCountQuery || isGroupBy) {
+    // 统计类查询使用柱状图
+    return {
+      option: {
+        title: { text: '数据统计' },
+        tooltip: {},
+        xAxis: {
+          type: 'category',
+          data: data.map(row => String(row[0]))
+        } as any,
+        yAxis: {
+          type: 'value'
+        },
+        series: [{
+          type: 'bar',
+          data: data.map(row => Number(row[1]) || 0)
+        } as any]
+      },
+      title: '数据统计图表',
+      description: '基于查询结果生成的统计图表'
+    };
+  } else {
+    // 其他情况使用表格形式的柱状图
+    return {
+      option: {
+        title: { text: '数据概览' },
+        tooltip: {},
+        xAxis: {
+          type: 'category',
+          data: data.map((_, index) => `行${index + 1}`)
+        } as any,
+        yAxis: {
+          type: 'value'
+        },
+        series: [{
+          type: 'bar',
+          data: data.map(row => Number(row[0]) || 0)
+        } as any]
+      },
+      title: '数据概览图表',
+      description: '数据的可视化展示'
+    };
   }
 };
 
@@ -779,7 +911,7 @@ function FileUploadPanel({ fileInfos, onFileSelect, onRemoveFile, isAnalyzing }:
 }
 
 // 聊天消息组件
-function ChatMessage({ message }: { message: Message }) {
+function ChatMessage({ message, chartData }: { message: Message; chartData?: EChartsConfig | null }) {
   const isUser = message.role === 'user';
   
   return (
@@ -848,6 +980,10 @@ function ChatMessage({ message }: { message: Message }) {
             >
               {message.content}
             </ReactMarkdown>
+            {/* 显示图表 */}
+            {chartData && (
+              <EChartsComponent config={chartData} />
+            )}
           </div>
         )}
       </div>
@@ -861,6 +997,7 @@ export default function Chat() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [initializingPyodide, setInitializingPyodide] = useState(true);
   const [isExecutingSQL, setIsExecutingSQL] = useState(false);
+  const [latestChartConfig, setLatestChartConfig] = useState<EChartsConfig | null>(null);
   
   // 初始化 Pyodide
   useEffect(() => {
@@ -941,6 +1078,11 @@ ${dataContext}
 
 前${Math.min(5, result.row_count || 0)}行数据：
 ${result.data?.slice(0, 5).map(row => row?.join(' | ')).join('\n')}`;
+            
+            // 如果有图表配置，存储它
+            if (result.chartConfig) {
+              setLatestChartConfig(result.chartConfig);
+            }
             
             // 让AI分析结果
             await append({
@@ -1155,9 +1297,16 @@ ${result.data?.slice(0, 5).map(row => row?.join(' | ')).join('\n')}`;
                 </div>
               </div>
             ) : (
-              messages.filter(m => m.role !== 'system').map((m: Message) => (
-                <ChatMessage key={m.id} message={m} />
-              ))
+              messages.filter(m => m.role !== 'system').map((m: Message, index) => {
+                const isLastAIMessage = m.role === 'assistant' && index === messages.filter(m => m.role !== 'system').length - 1;
+                return (
+                  <ChatMessage 
+                    key={m.id} 
+                    message={m} 
+                    chartData={isLastAIMessage ? latestChartConfig : null}
+                  />
+                );
+              })
             )}
           </div>
 
