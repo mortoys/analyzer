@@ -20,6 +20,10 @@ interface FileInfo {
   }[];
 }
 
+
+
+
+
 // 列信息组件
 function ColumnInfo({ column }: { column: TableColumn }) {
   const getTypeColor = (type: string) => {
@@ -32,12 +36,12 @@ function ColumnInfo({ column }: { column: TableColumn }) {
   };
 
   return (
-    <div className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
+    <div className="flex items-center justify-between py-1.5 px-3 hover:bg-gray-50">
       <div className="flex-1 min-w-0">
-        <div className="font-mono text-sm text-gray-900">{column.name}</div>
+        <div className="font-mono text-xs text-gray-900">{column.name}</div>
         <div className="text-xs text-gray-500 mt-0.5">{column.description}</div>
       </div>
-      <div className={`px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(column.type)}`}>
+      <div className={`px-2 py-0.5 rounded text-xs font-medium ${getTypeColor(column.type)}`}>
         {column.type}
       </div>
     </div>
@@ -45,53 +49,31 @@ function ColumnInfo({ column }: { column: TableColumn }) {
 }
 
 // 表格信息组件
-function TableInfo({ table, isExpanded, onToggleExpanded }: {
+function TableInfo({ table }: {
   table: { name: string; rowCount: number; columns: TableColumn[] };
-  isExpanded: boolean;
-  onToggleExpanded: () => void;
 }) {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-      <div 
-        className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50" 
-        onClick={onToggleExpanded}
-      >
-        <div className="flex-1">
-          <div className="font-medium text-gray-900">{table.name}</div>
-          <div className="text-sm text-gray-500 mt-0.5">
-            {table.rowCount.toLocaleString()} rows • {table.columns.length} columns
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="text-xs text-gray-400">{table.columns.length}</span>
-          <svg 
-            className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+    <div className="border border-gray-200 rounded-md mb-3 last:mb-0">
+      <div className="bg-gray-50 px-3 py-2 border-b border-gray-200">
+        <div className="font-medium text-gray-900 text-sm">{table.name}</div>
+        <div className="text-xs text-gray-500 mt-0.5">
+          {table.rowCount.toLocaleString()} rows • {table.columns.length} columns
         </div>
       </div>
-      
-      {isExpanded && (
-        <div className="max-h-64 overflow-y-auto border-t border-gray-100">
-          {table.columns.map((column, colIndex) => (
-            <ColumnInfo key={colIndex} column={column} />
-          ))}
-        </div>
-      )}
+      <div className="max-h-48 overflow-y-auto">
+        {table.columns.map((column, colIndex) => (
+          <ColumnInfo key={colIndex} column={column} />
+        ))}
+      </div>
     </div>
   );
 }
 
-// 文件信息卡片组件
-function FileInfoCard({ fileInfo, index, onRemove, onToggleExpanded }: {
+// 文件信息卡片组件 - 包含表和列信息
+function FileInfoCard({ fileInfo, index, onRemove }: {
   fileInfo: FileInfo;
   index: number;
   onRemove: (index: number) => void;
-  onToggleExpanded: (index: number) => void;
 }) {
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0B';
@@ -106,109 +88,140 @@ function FileInfoCard({ fileInfo, index, onRemove, onToggleExpanded }: {
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-      <div className="flex items-center justify-between p-3 border-b border-gray-100">
+    <div className="border-b border-gray-100 last:border-b-0">
+      {/* 文件头部信息 */}
+      <div className="flex items-center justify-between p-3 bg-white">
         <div className="flex items-center space-x-3 flex-1 min-w-0">
-          <div className="w-8 h-8 bg-gray-100 rounded-md flex items-center justify-center">
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-6 h-6 bg-gray-100 rounded flex items-center justify-center">
+            <svg className="w-3 h-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-gray-900 truncate">{fileInfo.file.name}</div>
-            <div className="text-sm text-gray-500 mt-0.5">
-              {formatFileSize(fileInfo.file.size)} • {getFileExtension(fileInfo.file.name)}
+            <div className="text-sm font-medium text-gray-900 truncate">{fileInfo.file.name}</div>
+            <div className="text-xs text-gray-500">
+              {formatFileSize(fileInfo.file.size)} • {getFileExtension(fileInfo.file.name)} • {fileInfo.tables.length} table{fileInfo.tables.length > 1 ? 's' : ''}
             </div>
           </div>
         </div>
         <button
-          onClick={() => onRemove(index)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(index);
+          }}
           className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
       
-      <div className="p-3 space-y-3">
+      {/* 表格和列信息 */}
+      <div className="px-3 pb-3 bg-gray-50">
         {fileInfo.tables.map((table, tableIndex) => (
-          <TableInfo
-            key={tableIndex}
-            table={table}
-            isExpanded={fileInfo.isExpanded}
-            onToggleExpanded={() => onToggleExpanded(index)}
-          />
+          <TableInfo key={tableIndex} table={table} />
         ))}
       </div>
     </div>
   );
 }
 
-// 文件上传面板组件
-function FileUploadPanel({ fileInfos, onFileSelect, onRemoveFile, onToggleExpanded }: {
+// 文件上传面板组件 - 紧凑版本
+function FileUploadPanel({ fileInfos, onFileSelect, onRemoveFile }: {
   fileInfos: FileInfo[];
   onFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveFile: (index: number) => void;
-  onToggleExpanded: (index: number) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const toggleExpanded = () => {
+    setIsExpanded(!isExpanded);
+  };
 
   return (
-    <div className="fixed top-6 right-6 w-80 bg-white rounded-lg border border-gray-200 shadow-lg z-10 max-h-[calc(100vh-3rem)] overflow-hidden flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900">Data Sources</h3>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
+    <div className="fixed top-6 right-6 z-10">
+      <div className="bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+        {/* 头部 - 可点击展开/收起 */}
+        <div 
+          className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors"
+          onClick={toggleExpanded}
         >
-          Upload
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {fileInfos.length === 0 ? (
-          <div className="text-center py-8">
-            <svg className="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <div className="flex items-center space-x-2">
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p className="text-gray-500 text-sm mb-3">No data files uploaded</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-            >
-              Upload your first file
-            </button>
+            <span className="font-medium text-gray-900 text-sm">Data Sources</span>
+            {fileInfos.length > 0 && (
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full">
+                {fileInfos.length}
+              </span>
+            )}
           </div>
-        ) : (
-          fileInfos.map((fileInfo, index) => (
-            <FileInfoCard
-              key={index}
-              fileInfo={fileInfo}
-              index={index}
-              onRemove={onRemoveFile}
-              onToggleExpanded={onToggleExpanded}
-            />
-          ))
-        )}
-      </div>
-
-      {fileInfos.length > 0 && (
-        <div className="p-4 border-t border-gray-100 bg-gray-50">
-          <div className="text-sm text-gray-600">
-            {fileInfos.length} file{fileInfos.length > 1 ? 's' : ''} loaded
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </button>
+            <svg 
+              className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           </div>
         </div>
-      )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={onFileSelect}
-        accept=".csv,.xlsx,.xls,.tsv"
-      />
+        {/* 展开的内容 */}
+        {isExpanded && (
+          <div className="w-96 max-h-[32rem] overflow-hidden flex flex-col">
+            {fileInfos.length === 0 ? (
+              <div className="p-6 text-center border-t border-gray-100">
+                <svg className="w-8 h-8 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-gray-500 text-sm mb-3">No data files uploaded</p>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                >
+                  Upload your first file
+                </button>
+              </div>
+            ) : (
+              <div className="border-t border-gray-100 max-h-[30rem] overflow-y-auto">
+                {fileInfos.map((fileInfo, index) => (
+                  <FileInfoCard
+                    key={index}
+                    fileInfo={fileInfo}
+                    index={index}
+                    onRemove={onRemoveFile}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={onFileSelect}
+          accept=".csv,.xlsx,.xls,.tsv"
+        />
+      </div>
     </div>
   );
 }
@@ -236,45 +249,106 @@ export default function Chat() {
   
   // 模拟生成表格信息的假数据
   const generateMockTableInfo = (fileName: string) => {
-    // 根据文件名生成不同的假数据
-    if (fileName.toLowerCase().includes('sales') || fileName.toLowerCase().includes('销售')) {
-      return [{
-        name: 'Sales Data',
-        rowCount: 1250,
-        columns: [
-          { name: 'order_id', type: 'string', description: 'Unique order identifier' },
-          { name: 'customer_name', type: 'string', description: 'Customer full name' },
-          { name: 'product_name', type: 'string', description: 'Product name' },
-          { name: 'sales_amount', type: 'number', description: 'Total sales amount' },
-          { name: 'order_date', type: 'date', description: 'Order date' },
-          { name: 'region', type: 'string', description: 'Sales region' }
-        ]
-      }];
-    } else if (fileName.toLowerCase().includes('user') || fileName.toLowerCase().includes('用户')) {
-      return [{
-        name: 'User Information',
-        rowCount: 8640,
-        columns: [
-          { name: 'user_id', type: 'string', description: 'Unique user ID' },
-          { name: 'username', type: 'string', description: 'Username' },
-          { name: 'email', type: 'string', description: 'Email address' },
-          { name: 'age', type: 'number', description: 'User age' },
-          { name: 'gender', type: 'string', description: 'User gender' },
-          { name: 'registration_date', type: 'date', description: 'Registration date' }
-        ]
-      }];
-    } else {
-      return [{
-        name: 'Data Table',
-        rowCount: Math.floor(Math.random() * 5000) + 100,
-        columns: [
-          { name: 'id', type: 'number', description: 'Primary key ID' },
-          { name: 'name', type: 'string', description: 'Name field' },
-          { name: 'value', type: 'number', description: 'Numeric value' },
-          { name: 'category', type: 'string', description: 'Category' },
-          { name: 'created_at', type: 'date', description: 'Creation timestamp' }
-        ]
-      }];
+    const extension = fileName.toLowerCase().split('.').pop();
+    
+    // Excel文件可能有多个sheet
+    if (extension === 'xlsx' || extension === 'xls') {
+      if (fileName.toLowerCase().includes('sales') || fileName.toLowerCase().includes('销售')) {
+        return [
+          {
+            name: 'Sales_2024',
+            rowCount: 1250,
+            columns: [
+              { name: 'order_id', type: 'string', description: '订单唯一标识符' },
+              { name: 'customer_name', type: 'string', description: '客户姓名' },
+              { name: 'product_name', type: 'string', description: '产品名称' },
+              { name: 'sales_amount', type: 'number', description: '销售金额' },
+              { name: 'order_date', type: 'date', description: '订单日期' },
+              { name: 'region', type: 'string', description: '销售区域' }
+            ]
+          },
+          {
+            name: 'Sales_2023',
+            rowCount: 980,
+            columns: [
+              { name: 'order_id', type: 'string', description: '订单ID' },
+              { name: 'customer_id', type: 'string', description: '客户ID' },
+              { name: 'product_code', type: 'string', description: '产品代码' },
+              { name: 'amount', type: 'number', description: '金额' },
+              { name: 'date', type: 'date', description: '日期' }
+            ]
+          }
+        ];
+      } else {
+        return [
+          {
+            name: 'Sheet1',
+            rowCount: Math.floor(Math.random() * 3000) + 500,
+            columns: [
+              { name: 'id', type: 'number', description: '主键ID' },
+              { name: 'name', type: 'string', description: '名称字段' },
+              { name: 'value', type: 'number', description: '数值' },
+              { name: 'category', type: 'string', description: '类别' },
+              { name: 'created_at', type: 'date', description: '创建时间' }
+            ]
+          },
+          {
+            name: 'Summary',
+            rowCount: Math.floor(Math.random() * 100) + 20,
+            columns: [
+              { name: 'category', type: 'string', description: '类别' },
+              { name: 'total_count', type: 'number', description: '总数量' },
+              { name: 'avg_value', type: 'number', description: '平均值' }
+            ]
+          }
+        ];
+      }
+    } 
+    // CSV或其他单表文件
+    else {
+      if (fileName.toLowerCase().includes('user') || fileName.toLowerCase().includes('用户')) {
+        return [{
+          name: 'Users',
+          rowCount: 8640,
+          columns: [
+            { name: 'user_id', type: 'string', description: '用户唯一ID' },
+            { name: 'username', type: 'string', description: '用户名' },
+            { name: 'email', type: 'string', description: '邮箱地址' },
+            { name: 'age', type: 'number', description: '年龄' },
+            { name: 'gender', type: 'string', description: '性别' },
+            { name: 'registration_date', type: 'date', description: '注册日期' },
+            { name: 'last_login', type: 'date', description: '最后登录时间' },
+            { name: 'is_active', type: 'string', description: '是否活跃用户' }
+          ]
+        }];
+      } else if (fileName.toLowerCase().includes('product') || fileName.toLowerCase().includes('产品')) {
+        return [{
+          name: 'Products',
+          rowCount: 450,
+          columns: [
+            { name: 'product_id', type: 'string', description: '产品ID' },
+            { name: 'product_name', type: 'string', description: '产品名称' },
+            { name: 'category', type: 'string', description: '产品类别' },
+            { name: 'price', type: 'number', description: '价格' },
+            { name: 'stock_quantity', type: 'number', description: '库存数量' },
+            { name: 'supplier', type: 'string', description: '供应商' },
+            { name: 'created_date', type: 'date', description: '创建日期' }
+          ]
+        }];
+      } else {
+        return [{
+          name: 'Data',
+          rowCount: Math.floor(Math.random() * 5000) + 100,
+          columns: [
+            { name: 'id', type: 'number', description: '主键标识符' },
+            { name: 'name', type: 'string', description: '名称' },
+            { name: 'value', type: 'number', description: '数值' },
+            { name: 'category', type: 'string', description: '分类' },
+            { name: 'status', type: 'string', description: '状态' },
+            { name: 'created_at', type: 'date', description: '创建时间戳' }
+          ]
+        }];
+      }
     }
   };
   
@@ -297,12 +371,6 @@ export default function Chat() {
 
   const removeFile = (index: number) => {
     setFileInfos(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const toggleExpanded = (index: number) => {
-    setFileInfos(prev => prev.map((info, i) => 
-      i === index ? { ...info, isExpanded: !info.isExpanded } : info
-    ));
   };
   
   return (
@@ -364,7 +432,6 @@ export default function Chat() {
           fileInfos={fileInfos}
           onFileSelect={handleFileSelect}
           onRemoveFile={removeFile}
-          onToggleExpanded={toggleExpanded}
         />
       </div>
     </div>
