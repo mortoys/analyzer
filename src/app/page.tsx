@@ -16,6 +16,7 @@ interface AnalysisResult {
   columns: string[];
   row_count: number;
   column_count: number;
+  column_details?: TableColumn[];
 }
 
 // 添加 SQL 执行结果接口
@@ -35,6 +36,7 @@ interface PythonQueryResult {
   columns?: string[];
   row_count?: number;
   column_count?: number;
+  column_details?: TableColumn[];
   error?: string;
   success?: boolean;
 }
@@ -198,9 +200,10 @@ try:
     else:
         # 获取表的基本信息
         print("获取表基本信息...")
-        row_count, column_names = analyzer.db_manager.get_table_info()
+        row_count, column_names, column_details = analyzer.db_manager.get_table_info()
         print(f"行数: {row_count}")
         print(f"列名: {column_names}")
+        print(f"列详细信息: {column_details}")
         
         # 获取样本数据
         print("获取样本数据...")
@@ -212,6 +215,7 @@ try:
             "columns": column_names,
             "row_count": row_count,
             "column_count": len(column_names),
+            "column_details": column_details,
             "success": True
         }
         print(f"成功构建结果: {type(result)}")
@@ -250,7 +254,8 @@ result
     data: tableJs.data || [],
     columns: tableJs.columns || [],
     row_count: tableJs.row_count || 0,
-    column_count: tableJs.column_count || 0
+    column_count: tableJs.column_count || 0,
+    column_details: tableJs.column_details || []
   };
   
   console.log('最终返回结果:', finalResult);
@@ -931,6 +936,16 @@ ${result.data?.slice(0, 5).map(row => row?.join(' | ')).join('\n')}`;
             try {
               const summarizeData = await analyzeFileWithDuckDB(file, pyodide);
               fileInfo.summarizeData = summarizeData;
+              
+              // 使用真实的列信息替换模拟数据
+              if (summarizeData.column_details && summarizeData.column_details.length > 0) {
+                fileInfo.tables = [{
+                  name: file.name.replace('.csv', ''),
+                  rowCount: summarizeData.row_count,
+                  columns: summarizeData.column_details
+                }];
+              }
+              
               console.log(`文件 ${file.name} 分析完成，数据已加载到 DuckDB`);
             } catch (error) {
               console.error(`分析文件 ${file.name} 失败:`, error);
