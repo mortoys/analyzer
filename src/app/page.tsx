@@ -1,26 +1,16 @@
 'use client';
 
-import { useChat } from 'ai/react';
-import Link from 'next/link';
+import { useChat } from '@ai-sdk/react';
+import type { Message } from '@ai-sdk/react';
 
 export default function Chat() {
   const { messages, input, handleInputChange, handleSubmit } = useChat();
-
+  
   return (
     <div className="flex flex-col w-full max-w-md py-24 mx-auto stretch">
-      <div className="mb-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">Next.js AI 应用</h1>
-        <Link 
-          href="/csv-analyzer" 
-          className="inline-block px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-        >
-          前往 CSV 数据分析器
-        </Link>
-      </div>
-      
-      {messages.map(m => (
+      {messages.map((m: Message) => (
         <div key={m.id} className="whitespace-pre-wrap">
-          <strong>{m.role === 'user' ? 'User: ' : 'AI: '}</strong>
+          {m.role === 'user' ? 'User: ' : 'AI: '}
           {m.content}
         </div>
       ))}
