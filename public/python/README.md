@@ -5,7 +5,7 @@
 ## 包结构
 
 ```
-csv_analyzer/
+analyzer/
 ├── __init__.py      # 包初始化和便捷函数
 ├── database.py      # DuckDB 数据库管理
 ├── loader.py        # CSV 数据加载器
@@ -25,26 +25,26 @@ csv_analyzer/
 ### 基本用法
 
 ```python
-import csv_analyzer
+import analyzer
 
 # 初始化包
-components = csv_analyzer.initialize()
+components = analyzer.initialize()
 
 # 加载 CSV 数据
-row_count = csv_analyzer.load_csv(csv_content)
+row_count = analyzer.load_csv(csv_content)
 
 # 执行分析
-describe_result = csv_analyzer.describe_data()
-summarize_result = csv_analyzer.summarize_data()
+describe_result = analyzer.describe_data()
+summarize_result = analyzer.summarize_data()
 ```
 
 ### 高级用法
 
 ```python
 # 使用具体的类实例
-db_manager = csv_analyzer.db_manager
-data_loader = csv_analyzer.data_loader
-data_analyzer = csv_analyzer.data_analyzer
+db_manager = analyzer.db_manager
+data_loader = analyzer.data_loader
+data_analyzer = analyzer.data_analyzer
 
 # 获取表信息
 row_count, columns = db_manager.get_table_info()

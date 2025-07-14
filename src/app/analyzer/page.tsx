@@ -21,14 +21,14 @@ const loadPythonPackage = async (pyodide: any): Promise<void> => {
   ];
   
   for (const file of packageFiles) {
-    const response = await fetch(`/python/csv_analyzer/${file}`);
+    const response = await fetch(`/python/analyzer/${file}`);
     if (!response.ok) {
       throw new Error(`无法加载包文件: ${file}`);
     }
     const content = await response.text();
     
     // 将文件内容写入 Pyodide 的虚拟文件系统
-    pyodide.FS.writeFile(`/csv_analyzer/${file}`, content);
+    pyodide.FS.writeFile(`/analyzer/${file}`, content);
   }
   
   // 导入包
@@ -36,8 +36,8 @@ const loadPythonPackage = async (pyodide: any): Promise<void> => {
 import sys
 sys.path.append('/')
 
-import csv_analyzer
-components = csv_analyzer.initialize()
+import analyzer
+components = analyzer.initialize()
 print("Python 包已成功导入和初始化")
   `);
 };
@@ -70,7 +70,7 @@ const initPyodide = async (): Promise<any> => {
   `);
 
   // 创建包目录
-  pyodideInstance.FS.mkdir('/csv_analyzer');
+  pyodideInstance.FS.mkdir('/analyzer');
 
   // 加载并初始化 Python 包
   await loadPythonPackage(pyodideInstance);
@@ -88,7 +88,7 @@ const receiveData = async (file: File, pyodide: any): Promise<void> => {
 csv_content = """${fileContent.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"""
 
 # 使用包的便捷函数加载数据
-row_count = csv_analyzer.load_csv(csv_content)
+row_count = analyzer.load_csv(csv_content)
 print(f"通过 Python 包成功加载了 {row_count} 行数据")
   `);
 };
@@ -99,9 +99,9 @@ const runCommand = async (commandType: 'describe' | 'summarize', pyodide: any): 
     const pythonResult = pyodide.runPython(`
 # 使用包的便捷函数执行分析
 if "${commandType}" == "describe":
-    result_dict = csv_analyzer.describe_data()
+    result_dict = analyzer.describe_data()
 else:
-    result_dict = csv_analyzer.summarize_data()
+    result_dict = analyzer.summarize_data()
 
 result_dict
     `);
