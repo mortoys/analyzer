@@ -9,13 +9,37 @@ interface AnalysisResult {
   columns: string[];
 }
 
-// 加载 Python 脚本文件
-const loadPythonScript = async (scriptPath: string): Promise<string> => {
-  const response = await fetch(scriptPath);
-  if (!response.ok) {
-    throw new Error(`无法加载 Python 脚本: ${scriptPath}`);
+// 加载 Python 包
+const loadPythonPackage = async (pyodide: any): Promise<void> => {
+  // 加载包的所有模块
+  const packageFiles = [
+    '__init__.py',
+    'database.py',
+    'analyzer.py',
+    'loader.py',
+    'utils.py'
+  ];
+  
+  for (const file of packageFiles) {
+    const response = await fetch(`/python/csv_analyzer/${file}`);
+    if (!response.ok) {
+      throw new Error(`无法加载包文件: ${file}`);
+    }
+    const content = await response.text();
+    
+    // 将文件内容写入 Pyodide 的虚拟文件系统
+    pyodide.FS.writeFile(`/csv_analyzer/${file}`, content);
   }
-  return await response.text();
+  
+  // 导入包
+  pyodide.runPython(`
+import sys
+sys.path.append('/')
+
+import csv_analyzer
+components = csv_analyzer.initialize()
+print("Python 包已成功导入和初始化")
+  `);
 };
 
 // 1. 初始化 Pyodide
@@ -45,42 +69,40 @@ const initPyodide = async (): Promise<any> => {
     await micropip.install('duckdb')
   `);
 
-  // 加载并执行初始化脚本
-  const initScript = await loadPythonScript('/python/init_duckdb.py');
-  pyodideInstance.runPython(initScript);
+  // 创建包目录
+  pyodideInstance.FS.mkdir('/csv_analyzer');
 
-  // 加载其他 Python 脚本
-  const utilsScript = await loadPythonScript('/python/utils.py');
-  const loadCsvScript = await loadPythonScript('/python/load_csv.py');
-  const analysisScript = await loadPythonScript('/python/run_analysis.py');
-  
-  pyodideInstance.runPython(utilsScript);
-  pyodideInstance.runPython(loadCsvScript);
-  pyodideInstance.runPython(analysisScript);
+  // 加载并初始化 Python 包
+  await loadPythonPackage(pyodideInstance);
   
   return pyodideInstance;
 };
 
-// 2. 接收和处理数据 - 使用外部 Python 脚本
+// 2. 接收和处理数据 - 使用 Python 包
 const receiveData = async (file: File, pyodide: any): Promise<void> => {
   const fileContent = await file.text();
   
-  // 调用加载 CSV 数据的函数
+  // 使用包的便捷函数加载数据
   pyodide.runPython(`
 # CSV 内容需要进行转义处理
 csv_content = """${fileContent.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"""
 
-# 调用加载函数
-load_csv_data(csv_content)
+# 使用包的便捷函数加载数据
+row_count = csv_analyzer.load_csv(csv_content)
+print(f"通过 Python 包成功加载了 {row_count} 行数据")
   `);
 };
 
-// 3. 运行命令 - 使用外部 Python 脚本
+// 3. 运行命令 - 使用 Python 包
 const runCommand = async (commandType: 'describe' | 'summarize', pyodide: any): Promise<AnalysisResult> => {
   try {
     const pythonResult = pyodide.runPython(`
-# 调用分析函数
-result_dict = run_analysis_command("${commandType}")
+# 使用包的便捷函数执行分析
+if "${commandType}" == "describe":
+    result_dict = csv_analyzer.describe_data()
+else:
+    result_dict = csv_analyzer.summarize_data()
+
 result_dict
     `);
 
