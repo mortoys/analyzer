@@ -18,6 +18,27 @@ interface AnalysisResult {
   column_count: number;
 }
 
+// 添加 SQL 执行结果接口
+interface SQLExecutionResult {
+  success: boolean;
+  data?: unknown[][];
+  columns?: string[];
+  row_count?: number;
+  column_count?: number;
+  error?: string;
+  query?: string;
+}
+
+// Python 返回结果接口
+interface PythonQueryResult {
+  data?: unknown[][];
+  columns?: string[];
+  row_count?: number;
+  column_count?: number;
+  error?: string;
+  success?: boolean;
+}
+
 interface FileInfo {
   file: File;
   isExpanded: boolean;
@@ -74,8 +95,16 @@ import sys
 sys.path.append('/')
 
 import analyzer
-components = analyzer.initialize()
-print("Python 包已成功导入和初始化")
+# 检查是否已经初始化过
+if analyzer.db_manager is None:
+    components = analyzer.initialize()
+    print("Python 包已成功导入和初始化")
+else:
+    print("Python 包已存在，跳过初始化")
+    # 确保连接存在
+    if analyzer.db_manager.conn is None:
+        analyzer.db_manager.connect()
+        print("重新建立数据库连接")
   `);
 };
 
@@ -110,20 +139,306 @@ const initPyodide = async (): Promise<PyodideInstance> => {
 const analyzeFileWithDuckDB = async (file: File, pyodide: PyodideInstance): Promise<AnalysisResult> => {
   const fileContent = await file.text();
   
+  // 转义文件内容以避免Python字符串问题
+  const escapedContent = fileContent
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+  
   // 使用 DuckDB 加载数据
-  pyodide.runPython(`
-csv_content = """${fileContent.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"""
+  const loadResult = pyodide.runPython(`
+import analyzer
+# 确保连接存在
+if analyzer.db_manager.conn is None:
+    analyzer.db_manager.connect()
+    print("重新建立数据库连接")
+
+csv_content = """${escapedContent}"""
 row_count = analyzer.load_csv(csv_content)
 print(f"成功加载 {row_count} 行数据")
+
+# 验证数据是否正确加载
+if analyzer.db_manager.table_exists():
+    actual_count = analyzer.db_manager.execute_query("SELECT COUNT(*) FROM csv_data").fetchone()[0]
+    print(f"验证数据加载: 表存在，实际行数: {actual_count}")
+else:
+    print("警告: 数据加载后表不存在")
+
+{"success": True, "row_count": row_count}
   `);
   
-  // 执行 summarize 分析
-  const summarizeResult = pyodide.runPython(`
-result_dict = analyzer.summarize_data()
-result_dict
+  if (!loadResult) {
+    throw new Error("数据加载失败：Python执行返回空结果");
+  }
+  
+  const loadJs = loadResult.toJs({ dict_converter: Object.fromEntries }) as PythonQueryResult;
+  
+  if (loadJs.error) {
+    throw new Error(`数据加载失败：${loadJs.error}`);
+  }
+  
+  console.log(`数据加载成功，共 ${loadJs.row_count} 行`);
+  
+  // 获取基本表信息而不是执行 summarize
+  console.log('开始获取表信息...');
+  const tableInfoResult = pyodide.runPython(`
+import analyzer
+print("=== 开始获取表信息 ===")
+
+result = None
+try:
+    # 检查表是否存在
+    table_exists = analyzer.db_manager.table_exists()
+    print(f"表是否存在: {table_exists}")
+    
+    if not table_exists:
+        result = {"error": "表不存在", "success": False}
+        print("表不存在，返回错误")
+    else:
+        # 获取表的基本信息
+        print("获取表基本信息...")
+        row_count, column_names = analyzer.db_manager.get_table_info()
+        print(f"行数: {row_count}")
+        print(f"列名: {column_names}")
+        
+        # 获取样本数据
+        print("获取样本数据...")
+        sample_result = analyzer.data_loader.get_sample_data()
+        print(f"样本数据: {sample_result}")
+        
+        result = {
+            "data": sample_result["data"],
+            "columns": column_names,
+            "row_count": row_count,
+            "column_count": len(column_names),
+            "success": True
+        }
+        print(f"成功构建结果: {type(result)}")
+        
+except Exception as e:
+    import traceback
+    error_msg = f"获取表信息失败: {e}\\n{traceback.format_exc()}"
+    print(error_msg)
+    result = {"error": error_msg, "success": False}
+
+print(f"=== 返回结果: {result} ===")
+result
   `);
   
-  return summarizeResult.toJs({ dict_converter: Object.fromEntries }) as AnalysisResult;
+  console.log('Python执行完成，结果:', tableInfoResult);
+  console.log('结果类型:', typeof tableInfoResult);
+  console.log('结果是否为null:', tableInfoResult === null);
+  console.log('结果是否为undefined:', tableInfoResult === undefined);
+  
+  if (!tableInfoResult) {
+    console.error('Python执行返回空结果');
+    throw new Error("获取表信息失败：Python执行返回空结果");
+  }
+  
+  console.log('准备转换为JavaScript对象...');
+  const tableJs = tableInfoResult.toJs({ dict_converter: Object.fromEntries }) as PythonQueryResult;
+  console.log('转换后的JavaScript对象:', tableJs);
+  
+  if (tableJs.error) {
+    console.error('Python返回错误:', tableJs.error);
+    throw new Error(`获取表信息失败：${tableJs.error}`);
+  }
+  
+  console.log('成功获取表信息，准备返回结果...');
+  const finalResult = {
+    data: tableJs.data || [],
+    columns: tableJs.columns || [],
+    row_count: tableJs.row_count || 0,
+    column_count: tableJs.column_count || 0
+  };
+  
+  console.log('最终返回结果:', finalResult);
+  return finalResult;
+};
+
+// 添加 SQL 执行函数
+const executeSQL = async (query: string, pyodide: PyodideInstance): Promise<SQLExecutionResult> => {
+  try {
+    console.log('执行SQL查询:', query);
+    
+    // 清理查询字符串
+    const cleanQuery = query.trim().replace(/^```sql\s*/, '').replace(/\s*```$/, '');
+    
+    // 检查 analyzer 是否存在和数据是否加载
+    const checkResult = pyodide.runPython(`
+try:
+    import analyzer
+    # 确保连接存在
+    if analyzer.db_manager.conn is None:
+        analyzer.db_manager.connect()
+        print("重新建立数据库连接")
+    
+    # 检查数据是否已加载
+    if not analyzer.db_manager.table_exists():
+        result = {"error": "数据表不存在，请先上传CSV文件", "success": False}
+    else:
+        # 检查表中是否有数据
+        row_count = analyzer.db_manager.execute_query("SELECT COUNT(*) FROM csv_data").fetchone()[0]
+        if row_count == 0:
+            result = {"error": "数据表为空，请确保CSV文件已正确加载", "success": False}
+        else:
+            result = {"success": True, "row_count": row_count}
+            print(f"表验证成功，数据行数: {row_count}")
+except Exception as e:
+    import traceback
+    result = {"error": f"系统错误: {str(e)}\\n{traceback.format_exc()}", "success": False}
+    print(f"验证失败: {e}")
+
+result
+    `);
+    
+    if (!checkResult) {
+      return {
+        success: false,
+        error: "Python执行失败，请刷新页面重试",
+        query: cleanQuery
+      };
+    }
+    
+    const checkJs = checkResult.toJs({ dict_converter: Object.fromEntries }) as PythonQueryResult;
+    
+    if (checkJs.error) {
+      return {
+        success: false,
+        error: checkJs.error,
+        query: cleanQuery
+      };
+    }
+    
+    // 执行自定义查询
+    const result = pyodide.runPython(`
+import analyzer
+
+# 确保连接和组件存在
+if analyzer.db_manager.conn is None:
+    analyzer.db_manager.connect()
+    print("重新建立数据库连接")
+
+# 再次验证表是否存在
+table_exists = analyzer.db_manager.table_exists()
+print(f"表是否存在: {table_exists}")
+
+final_result = None
+
+try:
+    if table_exists:
+        row_count = analyzer.db_manager.execute_query("SELECT COUNT(*) FROM csv_data").fetchone()[0]
+        print(f"表行数: {row_count}")
+        
+        query_str = """${cleanQuery}"""
+        print("开始执行自定义查询:")
+        print(query_str)
+        
+        # 直接执行查询而不是通过custom_query
+        cursor = analyzer.db_manager.execute_query(query_str)
+        query_result = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        
+        print(f"查询返回: {len(query_result)} 行, {len(columns)} 列")
+        print(f"列名: {columns}")
+        if query_result:
+            print(f"前3行数据: {query_result[:3]}")
+        
+        # 直接构建简单的结果字典
+        final_result = {
+            "data": [[str(cell) if cell is not None else None for cell in row] for row in query_result],
+            "columns": columns,
+            "row_count": len(query_result),
+            "column_count": len(columns),
+            "query": query_str,
+            "success": True
+        }
+        print(f"构建的结果字典: {final_result}")
+        
+    else:
+        final_result = {"error": "表不存在", "success": False}
+        
+except Exception as e:
+    import traceback
+    error_details = traceback.format_exc()
+    print("查询执行失败:")
+    print(str(e))
+    print("详细错误:")
+    print(error_details)
+    final_result = {"error": f"{str(e)}\\n{error_details}", "success": False}
+
+print(f"最终返回结果: {final_result}")
+final_result
+    `);
+    
+    console.log('Python查询结果类型:', typeof result);
+    console.log('Python查询结果是否为null:', result === null);
+    console.log('Python查询结果是否为undefined:', result === undefined);
+    console.log('Python查询结果:', result);
+    
+    let jsResult: PythonQueryResult;
+    try {
+      if (result === null || result === undefined) {
+        throw new Error("Python返回结果为null或undefined");
+      }
+      
+      jsResult = result.toJs({ dict_converter: Object.fromEntries }) as PythonQueryResult;
+      console.log('JavaScript结果转换成功:', jsResult);
+      
+      if (!jsResult) {
+        throw new Error("转换后的JavaScript结果为空");
+      }
+      
+    } catch (error) {
+      console.error('JavaScript结果转换失败:', error);
+      console.error('原始Python结果:', result);
+      
+      return {
+        success: false,
+        error: `结果转换失败: ${error instanceof Error ? error.message : String(error)}`,
+        query: cleanQuery
+      };
+    }
+    
+    if (jsResult.error) {
+      return {
+        success: false,
+        error: jsResult.error,
+        query: cleanQuery
+      };
+    }
+    
+    return {
+      success: true,
+      data: jsResult.data,
+      columns: jsResult.columns,
+      row_count: jsResult.row_count,
+      column_count: jsResult.column_count,
+      query: cleanQuery
+    };
+    
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      query: query
+    };
+  }
+};
+
+// 判断消息是否包含SQL查询
+const containsSQL = (message: string): boolean => {
+  const sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'WITH', 'DESCRIBE', 'SUMMARIZE'];
+  const upperMessage = message.toUpperCase();
+  return sqlKeywords.some(keyword => upperMessage.includes(keyword));
+};
+
+// 提取SQL查询
+const extractSQL = (message: string): string => {
+  // 移除markdown SQL代码块标记
+  const cleanMessage = message.replace(/```sql\s*\n?/gi, '').replace(/\n?\s*```/g, '');
+  return cleanMessage.trim();
 };
 
 // 列信息组件
@@ -433,6 +748,7 @@ export default function Chat() {
   const [pyodide, setPyodide] = useState<PyodideInstance | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [initializingPyodide, setInitializingPyodide] = useState(true);
+  const [isExecutingSQL, setIsExecutingSQL] = useState(false);
   
   // 初始化 Pyodide
   useEffect(() => {
@@ -454,26 +770,88 @@ export default function Chat() {
   // 创建包含数据上下文的聊天实例
   const dataContext = fileInfos.map(fileInfo => {
     if (fileInfo.summarizeData) {
-      return `文件 ${fileInfo.file.name} 的数据分析结果：
-- 总行数: ${fileInfo.summarizeData.row_count}
-- 字段数: ${fileInfo.summarizeData.column_count}
-- 字段信息: ${fileInfo.summarizeData.columns?.join(', ')}
-- 分析数据: ${JSON.stringify(fileInfo.summarizeData.data?.slice(0, 5))}`;
+      const data = fileInfo.summarizeData;
+      return `文件 ${fileInfo.file.name} 的数据信息：
+- 总行数: ${data.row_count}
+- 字段数: ${data.column_count}
+- 字段名称: ${data.columns?.join(', ')}
+- 样本数据 (前5行): 
+${data.data?.slice(0, 5).map((row, index) => 
+  `  第${index + 1}行: ${data.columns?.map((col, i) => `${col}=${row[i]}`).join(', ')}`
+).join('\n')}`;
     }
     return `文件 ${fileInfo.file.name} 已上传但未分析`;
   }).join('\n\n');
 
-  const { messages, input, handleInputChange, handleSubmit } = useChat({
+  // 修改聊天配置，添加SQL执行逻辑
+  const { messages, input, handleInputChange, handleSubmit, append } = useChat({
     initialMessages: dataContext ? [
       {
         id: 'system',
         role: 'system',
-        content: `你是一个数据分析助手。当前已上传的数据文件信息：\n\n${dataContext}\n\n请基于这些数据回答用户的问题。`
+                 content: `你是一个数据分析助手。当前已上传的数据文件信息：
+
+${dataContext}
+
+重要规则：
+1. 用户询问数据问题时，你应该首先返回一个可执行的SQL查询语句
+2. 表名固定为 'csv_data'
+3. 只返回SQL查询，不要包含其他解释文字
+4. 支持的SQL操作：SELECT, DESCRIBE, SUMMARIZE, WITH等DuckDB支持的语法
+5. 根据上面的样本数据了解字段名称和数据类型
+6. 如果需要复杂分析，使用WITH子句或子查询
+7. 字段名称区分大小写，请使用准确的字段名
+
+示例：
+用户问："显示数据的前10行"
+你应该回复：SELECT * FROM csv_data LIMIT 10
+
+用户问："统计每个类别的数量"
+你应该回复：SELECT category, COUNT(*) as count FROM csv_data GROUP BY category ORDER BY count DESC`
       }
     ] : [],
-    onFinish: (message) => {
-      // 在消息完成后，可以添加一些逻辑
-      console.log('AI 回复完成:', message);
+    onFinish: async (message) => {
+      // 检查AI返回的消息是否包含SQL
+      if (containsSQL(message.content) && pyodide) {
+        setIsExecutingSQL(true);
+        
+        try {
+          // 提取并执行SQL
+          const sqlQuery = extractSQL(message.content);
+          const result = await executeSQL(sqlQuery, pyodide);
+          
+          if (result.success) {
+            // 构建结果描述
+            const resultSummary = `SQL查询执行成功！
+查询：${result.query}
+结果：${result.row_count} 行，${result.column_count} 列
+列名：${result.columns?.join(', ')}
+
+前${Math.min(5, result.row_count || 0)}行数据：
+${result.data?.slice(0, 5).map(row => row?.join(' | ')).join('\n')}`;
+            
+            // 让AI分析结果
+            await append({
+              role: 'user',
+              content: `请分析以下SQL查询结果：\n\n${resultSummary}`
+            });
+          } else {
+            // 处理SQL执行错误
+            await append({
+              role: 'user',
+              content: `SQL查询执行失败：${result.error}\n查询：${result.query}\n请提供一个修正的SQL查询。`
+            });
+          }
+        } catch (error) {
+          console.error('SQL执行失败:', error);
+          await append({
+            role: 'user',
+            content: `SQL执行过程中发生错误：${error instanceof Error ? error.message : String(error)}`
+          });
+        } finally {
+          setIsExecutingSQL(false);
+        }
+      }
     }
   });
   
@@ -553,8 +931,11 @@ export default function Chat() {
             try {
               const summarizeData = await analyzeFileWithDuckDB(file, pyodide);
               fileInfo.summarizeData = summarizeData;
+              console.log(`文件 ${file.name} 分析完成，数据已加载到 DuckDB`);
             } catch (error) {
               console.error(`分析文件 ${file.name} 失败:`, error);
+              // 显示错误信息给用户
+              alert(`文件 ${file.name} 分析失败：${error instanceof Error ? error.message : String(error)}`);
             }
           }
           
@@ -566,6 +947,7 @@ export default function Chat() {
       
     } catch (error) {
       console.error('文件处理失败:', error);
+      alert(`文件处理失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -579,7 +961,7 @@ export default function Chat() {
   const handleSubmitWithContext = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!input.trim()) return;
+    if (!input.trim() || isExecutingSQL) return;
     
     // 构建包含数据上下文的消息
     let contextualInput = input;
@@ -590,7 +972,7 @@ export default function Chat() {
         .map(f => `文件 ${f.file.name}: ${f.summarizeData!.row_count} 行, ${f.summarizeData!.column_count} 列`)
         .join('; ');
       
-      contextualInput = `基于已上传的数据文件 (${dataInfo})，请回答: ${input}`;
+      contextualInput = `基于已上传的数据文件 (${dataInfo})，请提供SQL查询来回答: ${input}`;
     }
     
     // 创建新的表单事件，包含修改后的输入
@@ -616,12 +998,15 @@ export default function Chat() {
           <div className="bg-white border-b border-gray-200 px-8 py-6">
             <h1 className="text-2xl font-bold text-gray-900">数据分析助手</h1>
             <p className="text-gray-600 mt-1">
-              上传您的数据文件并开始分析
+              上传您的数据文件，AI将生成SQL查询并执行分析
               {initializingPyodide && (
                 <span className="ml-2 text-yellow-600">• 正在初始化分析引擎...</span>
               )}
               {!initializingPyodide && pyodide && (
                 <span className="ml-2 text-green-600">• 分析引擎已就绪</span>
+              )}
+              {isExecutingSQL && (
+                <span className="ml-2 text-blue-600">• 正在执行SQL查询...</span>
               )}
             </p>
           </div>
@@ -637,7 +1022,7 @@ export default function Chat() {
                     </svg>
                   </div>
                   <h3 className="text-lg font-medium text-gray-900 mb-2">准备分析您的数据</h3>
-                  <p className="text-gray-500">在右侧上传文件，然后询问关于您数据的问题</p>
+                  <p className="text-gray-500">在右侧上传文件，然后询问关于您数据的问题，AI会生成SQL查询并执行分析</p>
                 </div>
               </div>
             ) : (
@@ -654,16 +1039,16 @@ export default function Chat() {
                 <input
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   value={input}
-                  placeholder="询问关于您数据的任何问题..."
+                  placeholder="询问关于您数据的任何问题，AI会生成SQL查询..."
                   onChange={handleInputChange}
-                  disabled={initializingPyodide}
+                  disabled={initializingPyodide || isExecutingSQL}
                 />
                 <button
                   type="submit"
-                  disabled={!input.trim() || initializingPyodide}
+                  disabled={!input.trim() || initializingPyodide || isExecutingSQL}
                   className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
                 >
-                  分析
+                  {isExecutingSQL ? '执行中...' : '分析'}
                 </button>
               </div>
             </form>
