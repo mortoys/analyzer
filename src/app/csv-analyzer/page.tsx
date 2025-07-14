@@ -9,6 +9,15 @@ interface AnalysisResult {
   columns: string[];
 }
 
+// 加载 Python 脚本文件
+const loadPythonScript = async (scriptPath: string): Promise<string> => {
+  const response = await fetch(scriptPath);
+  if (!response.ok) {
+    throw new Error(`无法加载 Python 脚本: ${scriptPath}`);
+  }
+  return await response.text();
+};
+
 // 1. 初始化 Pyodide
 const initPyodide = async (): Promise<any> => {
   // 检查是否已有 Pyodide
@@ -35,90 +44,48 @@ const initPyodide = async (): Promise<any> => {
     import micropip
     await micropip.install('duckdb')
   `);
+
+  // 加载并执行初始化脚本
+  const initScript = await loadPythonScript('/python/init_duckdb.py');
+  pyodideInstance.runPython(initScript);
+
+  // 加载其他 Python 脚本
+  const utilsScript = await loadPythonScript('/python/utils.py');
+  const loadCsvScript = await loadPythonScript('/python/load_csv.py');
+  const analysisScript = await loadPythonScript('/python/run_analysis.py');
+  
+  pyodideInstance.runPython(utilsScript);
+  pyodideInstance.runPython(loadCsvScript);
+  pyodideInstance.runPython(analysisScript);
   
   return pyodideInstance;
 };
 
-// 2. 接收和处理数据 - 使用 DuckDB 原生 CSV 读取能力
+// 2. 接收和处理数据 - 使用外部 Python 脚本
 const receiveData = async (file: File, pyodide: any): Promise<void> => {
   const fileContent = await file.text();
   
-  // 将 CSV 内容写入虚拟文件系统，然后使用 DuckDB 的 read_csv_auto 读取
+  // 调用加载 CSV 数据的函数
   pyodide.runPython(`
-import duckdb
-import io
-
-# 创建 DuckDB 连接
-conn = duckdb.connect(':memory:')
-
-# CSV 内容
+# CSV 内容需要进行转义处理
 csv_content = """${fileContent.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"""
 
-# 将 CSV 内容写入虚拟文件系统
-with open('/tmp/data.csv', 'w') as f:
-    f.write(csv_content)
-
-# 使用 DuckDB 的原生 CSV 读取能力
-conn.execute("CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('/tmp/data.csv')")
+# 调用加载函数
+load_csv_data(csv_content)
   `);
 };
 
-// 3. 运行命令
+// 3. 运行命令 - 使用外部 Python 脚本
 const runCommand = async (commandType: 'describe' | 'summarize', pyodide: any): Promise<AnalysisResult> => {
-  const command = commandType.toUpperCase();
-  
   try {
     const pythonResult = pyodide.runPython(`
-# 检查表是否存在
-try:
-    table_info = conn.execute("SELECT count(*) FROM csv_data").fetchone()
-    print(f"表中有 {table_info[0]} 行数据")
-except Exception as e:
-    print(f"表不存在或访问错误: {e}")
-    raise e
-
-# 执行 ${command}
-print(f"正在执行: ${command} csv_data")
-try:
-    cursor = conn.execute("${command} csv_data")
-    result_data = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    print(f"查询返回: {len(result_data)} 行, {len(columns)} 列")
-    print(f"列名: {columns}")
-    print(f"前3行数据: {result_data[:3]}")
-except Exception as e:
-    print(f"查询执行错误: {e}")
-    raise e
-
-# 处理数据类型转换，特别是 Decimal 类型
-processed_data = []
-for row in result_data:
-    processed_row = []
-    for cell in row:
-        if cell is None:
-            processed_row.append(None)
-        elif hasattr(cell, '__str__'):
-            # 将所有数据转换为字符串，确保 JavaScript 能正确处理
-            processed_row.append(str(cell))
-        else:
-            processed_row.append(cell)
-    processed_data.append(processed_row)
-
-print(f"处理后数据: {len(processed_data)} 行")
-result_dict = {"data": processed_data, "columns": columns}
-print(f"最终返回字典的类型: {type(result_dict)}")
-print(f"数据键: {list(result_dict.keys())}")
+# 调用分析函数
+result_dict = run_analysis_command("${commandType}")
 result_dict
     `);
 
     // 将 PyProxy 对象转换为 JavaScript 对象
     const result = pythonResult.toJs({ dict_converter: Object.fromEntries }) as { data: any[][]; columns: string[] };
-
-    console.log('JavaScript 接收到的数据:', result);
-    console.log('数据类型:', typeof result);
-    console.log('数据键:', Object.keys(result || {}));
-    console.log('数据行数:', result?.data?.length);
-    console.log('列数:', result?.columns?.length);
 
     return {
       type: commandType,
