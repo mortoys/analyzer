@@ -69,8 +69,13 @@ const initPyodide = async (): Promise<any> => {
     await micropip.install('duckdb')
   `);
 
-  // 创建包目录
-  pyodideInstance.FS.mkdir('/analyzer');
+  // 安全地创建包目录
+  try {
+    pyodideInstance.FS.mkdir('/analyzer');
+  } catch {
+    // 如果目录已存在，忽略错误
+    console.log('目录 /analyzer 可能已存在，继续执行');
+  }
 
   // 加载并初始化 Python 包
   await loadPythonPackage(pyodideInstance);
