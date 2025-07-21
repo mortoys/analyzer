@@ -12,13 +12,12 @@ const openrouter = createOpenRouter({
 });
 
 export async function POST(req: Request) {
-  try {
-    const { messages }: { messages: CoreMessage[] } = await req.json();
+  const { messages }: { messages: CoreMessage[] } = await req.json();
 
-    // 添加数据分析系统提示词
-    const systemMessage: CoreMessage = {
-      role: 'system',
-      content: `你是一个专业的数据分析助手。你的任务是帮助用户分析上传的数据文件。
+  // 添加数据分析系统提示词
+  const systemMessage: CoreMessage = {
+    role: 'system',
+    content: `你是一个专业的数据分析助手。你的任务是帮助用户分析上传的数据文件。
 
 能力说明：
 1. 能够理解和分析 CSV、Excel 等格式的数据文件
@@ -35,53 +34,17 @@ export async function POST(req: Request) {
 - 如果数据有异常值或模式，主动指出
 
 请始终以友好、专业的态度回答用户的问题。`
-    };
+  };
 
-    // 将系统消息添加到消息列表开头（如果还没有系统消息）
-    const hasSystemMessage = messages.some(msg => msg.role === 'system');
-    const finalMessages = hasSystemMessage ? messages : [systemMessage, ...messages];
+  // 将系统消息添加到消息列表开头（如果还没有系统消息）
+  const hasSystemMessage = messages.some(msg => msg.role === 'system');
+  const finalMessages = hasSystemMessage ? messages : [systemMessage, ...messages];
 
-    const result = await streamText({
-      model: openrouter.chat(MODEL),
-      messages: finalMessages,
-    });
-
-    return result.toDataStreamResponse();
-  } catch (error) {
-    console.error('Chat API error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-  }
-}
-
-// 添加 OPTIONS 方法处理 CORS 预检请求
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+  const result = await streamText({
+    model: openrouter.chat(MODEL),
+    messages: finalMessages,
   });
-}
 
-// 明确处理不支持的方法
-export async function GET() {
-  return new Response(
-    JSON.stringify({ error: 'Method GET not allowed' }),
-    { 
-      status: 405,
-      headers: { 
-        'Content-Type': 'application/json',
-        'Allow': 'POST, OPTIONS'
-      }
-    }
-  );
+  return result.toDataStreamResponse();
 }
 
